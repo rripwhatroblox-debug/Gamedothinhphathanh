@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Bắn Máy Bay Tự Động</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background-color: #0d0e15;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        canvas {
+            background: radial-gradient(circle at center, #1b2735 0%, #090a0f 100%);
+            display: block;
+        }
+        #ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 15px 20px;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 0 0 5px #000;
+        }
+        .stat-item {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 8px 15px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        #game-over-screen, #start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            z-index: 10;
+        }
+        h1 {
+            font-size: 36px;
+            margin-bottom: 10px;
+            color: #00e5ff;
+            text-shadow: 0 0 10px #00e5ff;
+        }
+        p {
+            font-size: 16px;
+            margin-bottom: 25px;
+            color: #ccc;
+            text-align: center;
+            max-width: 80%;
+        }
+        .btn {
+            padding: 12px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            background: linear-gradient(45deg, #00e5ff, #7b2cbf);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            box-shadow: 0 0 15px rgba(0, 229, 255, 0.4);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 25px rgba(0, 229, 255, 0.8);
+        }
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="480" height="640"></canvas>
+        
+        <div id="ui-overlay">
+            <div class="stats">
+                <div class="stat-item" style="color: #00e5ff;">SCORE: <span id="scoreText">0</span></div>
+                <div class="stat-item" style="color: #ff0055;">LEVEL: <span id="levelText">1</span></div>
+            </div>
+            <div class="stats">
+                <div class="stat-item" style="color: #00ff66;">MÁU: <span id="healthText">100</span>%</div>
+            </div>
+        </div>
+
+        <div id="start-screen">
+            <h1>BẮN MÁY BAY A.I</h1>
+            <p>Máy bay sẽ <b>TỰ ĐỘNG BẮN</b>!<br>Dùng chuột hoặc phím mũi tên để di chuyển né tránh và tiêu diệt địch.</p>
+            <button class="btn" id="startBtn">BẮT ĐẦU CHƠI</button>
+        </div>
+
+        <div id="game-over-screen" class="hidden">
+            <h1 style="color: #ff0055; text-shadow: 0 0 10px #ff0055;">GAME OVER</h1>
+            <p id="finalScoreText">Điểm của bạn: 0</p>
+            <button class="btn" id="restartBtn">CHƠI LẠI</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // UI Elements
+        const scoreEl = document.getElementById('scoreText');
+        const levelEl = document.getElementById('levelText');
+        const healthEl = document.getElementById('healthText');
+        const startScreen = document.getElementById('start-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const finalScoreText = document.getElementById('finalScoreText');
+        const startBtn = document.getElementById('startBtn');
+        const restartBtn = document.getElementById('restartBtn');
+
+        // Trạng thái Game
+        let isGameRunning = false;
+        let score = 0;
+        let level = 1;
+        let killsForNextLevel = 10; // Số máy bay cần bắn hạ để lên level
+        let killsInCurrentLevel = 0;
+        let animationFrameId;
+
+        // Giọng nói AI (SpeechSynthesis)
+        function speakAIVoice(text) {
+            if ('speechSynthesis' in window) {
+                // Hủy các câu nói trước đó nếu chưa nói xong
+                window.speechSynthesis.cancel();
+
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'vi-VN'; // Ngôn ngữ Tiếng Việt
+                utterance.rate = 1.0;     // Tốc độ đọc
+                utterance.pitch = 1.1;    // Giọng hơi cao một chút tạo cảm giác AI
+
+                // Tìm giọng tiếng Việt nếu hệ thống hỗ trợ
+                const voices = window.speechSynthesis.getVoices();
+                const viVoice = voices.find(v => v.lang.includes('vi'));
+                if (viVoice) {
+                    utterance.voice = viVoice;
+                }
+
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+
+        // Tải sẵn voices khi trang chạy
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.onvoiceschanged = () => {
+                window.speechSynthesis.getVoices();
+            };
+        }
+
+        // Phím điều khiển
+        const keys = {};
+        let mouseX = canvas.width / 2;
+        let mouseY = canvas.height - 100;
+
+        window.addEventListener('keydown', e => keys[e.key] = true);
+        window.addEventListener('keyup', e => keys[e.key] = false);
+
+        canvas.addEventListener('mousemove', e => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            mouseY = e.clientY - rect.top;
+        });
+
+        // Người chơi (Máy bay)
+        class Player {
+            constructor() {
+                this.width = 40;
+                this.height = 40;
+                this.x = canvas.width / 2 - this.width / 2;
+                this.y = canvas.height - 80;
+                this.speed = 6;
+                this.health = 100;
+                this.lastShoot = 0;
+                this.shootInterval = 150; // Tự động bắn mỗi 150ms
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+                
+                // Thân máy bay
+                ctx.fillStyle = '#00e5ff';
+                ctx.beginPath();
+                ctx.moveTo(0, -this.height / 2);
+                ctx.lineTo(this.width / 2, this.height / 2);
+                ctx.lineTo(0, this.height / 4);
+                ctx.lineTo(-this.width / 2, this.height / 2);
+                ctx.closePath();
+                ctx.fill();
+
+                // Lửa đuôi máy bay
+                ctx.fillStyle = '#ff9900';
+                ctx.beginPath();
+                ctx.moveTo(-5, this.height / 3);
+                ctx.lineTo(5, this.height / 3);
+                ctx.lineTo(0, this.height / 2 + Math.random() * 10);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.restore();
+            }
+
+            update(now) {
+                // Di chuyển theo chuột hoặc phím
+                if (keys['ArrowLeft'] || keys['a'] || keys['A']) this.x -= this.speed;
+                if (keys['ArrowRight'] || keys['d'] || keys['D']) this.x += this.speed;
+                if (keys['ArrowUp'] || keys['w'] || keys['W']) this.y -= this.speed;
+                if (keys['ArrowDown'] || keys['s'] || keys['S']) this.y += this.speed;
+
+                // Nếu di chuyển bằng chuột
+                if (Math.abs(this.x + this.width / 2 - mouseX) > 5) {
+                    this.x += (mouseX - (this.x + this.width / 2)) * 0.1;
+                }
+                if (Math.abs(this.y + this.height / 2 - mouseY) > 5) {
+                    this.y += (mouseY - (this.y + this.height / 2)) * 0.1;
+                }
+
+                // Giới hạn trong màn hình
+                this.x = Math.max(0, Math.min(canvas.width - this.width, this.x));
+                this.y = Math.max(0, Math.min(canvas.height - this.height, this.y));
+
+                // TỰ ĐỘNG BẮN
+                if (now - this.lastShoot > this.shootInterval) {
+                    bullets.push(new Bullet(this.x + this.width / 2, this.y));
+                    this.lastShoot = now;
+                }
+            }
+        }
+
+        // Đạn của người chơi
+        class Bullet {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 3;
+                this.speed = 10;
+            }
+
+            draw() {
+                ctx.fillStyle = '#ffea00';
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#ffea00';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0; // Reset hiệu ứng phát sáng
+            }
+
+            update() {
+                this.y -= this.speed;
+            }
+        }
+
+        // Kẻ địch (Máy bay địch)
+        class Enemy {
+            constructor() {
+                this.width = 35;
+                this.height = 35;
+                this.x = Math.random() * (canvas.width - this.width);
+                this.y = -this.height;
+                // Độ khó: Tăng tốc độ theo Level
+                this.speed = 2 + Math.random() * 1.5 + (level * 0.4);
+                // Độ khó: Tăng HP theo Level
+                this.hp = Math.floor(1 + level / 3);
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+                
+                // Máy bay địch
+                ctx.fillStyle = this.hp > 1 ? '#ff0055' : '#ff5500';
+                ctx.beginPath();
+                ctx.moveTo(0, this.height / 2);
+                ctx.lineTo(this.width / 2, -this.height / 2);
+                ctx.lineTo(0, -this.height / 4);
+                ctx.lineTo(-this.width / 2, -this.height / 2);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.restore();
+            }
+
+            update() {
+                this.y += this.speed;
+            }
+        }
+
+        // Hiệu ứng nổ khi trúng đạn
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.radius = Math.random() * 3 + 1;
+                this.color = color;
+                this.vx = (Math.random() - 0.5) * 6;
+                this.vy = (Math.random() - 0.5) * 6;
+                this.alpha = 1;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.alpha;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.alpha -= 0.03;
+            }
+        }
+
+        // Danh sách quản lý các đối tượng
+        let player;
+        let bullets = [];
+        let enemies = [];
+        let particles = [];
+        let lastEnemySpawn = 0;
+
+        function createExplosion(x, y, color) {
+            for (let i = 0; i < 15; i++) {
+                particles.push(new Particle(x, y, color));
+            }
+        }
+
+        function checkLevelUp() {
+            if (killsInCurrentLevel >= killsForNextLevel) {
+                level++;
+                killsInCurrentLevel = 0;
+                killsForNextLevel += 5; // Tăng yêu cầu cho level tiếp theo
+
+                levelEl.textContent = level;
+
+                // PHÁT GIỌNG NÓI A.I KHI LÊN LEVEL
+                speakAIVoice(`XIN CHÚC MỪNG BẠN ĐÃ LÊN LEVEL ${level}`);
+            }
+        }
+
+        function initGame() {
+            player = new Player();
+            bullets = [];
+            enemies = [];
+            particles = [];
+            score = 0;
+            level = 1;
+            killsInCurrentLevel = 0;
+            killsForNextLevel = 10;
+
+            scoreEl.textContent = score;
+            levelEl.textContent = level;
+            healthEl.textContent = player.health;
+        }
+
+        function gameLoop(timestamp) {
+            if (!isGameRunning) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. Cập nhật & Vẽ Player
+            player.update(timestamp);
+            player.draw();
+
+            // 2. Tạo Máy bay địch dựa theo thời gian & Level
+            const spawnInterval = Math.max(300, 1200 - (level * 100)); // Càng level cao đẻ càng nhanh
+            if (timestamp - lastEnemySpawn > spawnInterval) {
+                enemies.push(new Enemy());
+                lastEnemySpawn = timestamp;
+            }
+
+            // 3. Quản lý Đạn
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i];
+                b.update();
+                b.draw();
+
+                // Xóa đạn bay ra khỏi màn hình
+                if (b.y < 0) {
+                    bullets.splice(i, 1);
+                }
+            }
+
+            // 4. Quản lý Địch & Va chạm
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
+                e.update();
+                e.draw();
+
+                // Địch va chạm với Player
+                if (
+                    player.x < e.x + e.width &&
+                    player.x + player.width > e.x &&
+                    player.y < e.y + e.height &&
+                    player.y + player.height > e.y
+                ) {
+                    createExplosion(e.x + e.width / 2, e.y + e.height / 2, '#ff0055');
+                    enemies.splice(i, 1);
+                    player.health -= 20;
+                    healthEl.textContent = Math.max(0, player.health);
+
+                    if (player.health <= 0) {
+                        endGame();
+                        return;
+                    }
+                    continue;
+                }
+
+                // Va chạm giữa Đạn và Địch
+                for (let j = bullets.length - 1; j >= 0; j--) {
+                    const b = bullets[j];
+                    if (
+                        b.x > e.x &&
+                        b.x < e.x + e.width &&
+                        b.y > e.y &&
+                        b.y < e.y + e.height
+                    ) {
+                        createExplosion(b.x, b.y, '#ffea00');
+                        bullets.splice(j, 1);
+                        e.hp--;
+
+                        if (e.hp <= 0) {
+                            createExplosion(e.x + e.width / 2, e.y + e.height / 2, '#ff5500');
+                            enemies.splice(i, 1);
+                            
+                            score += 10 * level;
+                            scoreEl.textContent = score;
+
+                            killsInCurrentLevel++;
+                            checkLevelUp();
+                            break;
+                        }
+                    }
+                }
+
+                // Địch lọt xuống đáy màn hình
+                if (e.y > canvas.height) {
+                    enemies.splice(i, 1);
+                }
+            }
+
+            // 5. Quản lý Hiệu ứng nổ (Particles)
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.update();
+                p.draw();
+                if (p.alpha <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        function startGame() {
+            initGame();
+            isGameRunning = true;
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            
+            // Lời chào khi bắt đầu
+            speakAIVoice("Bắt đầu trò chơi!");
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function endGame() {
+            isGameRunning = false;
+            cancelAnimationFrame(animationFrameId);
+            finalScoreText.textContent = `Điểm của bạn: ${score} (Lên đến Level ${level})`;
+            gameOverScreen.classList.remove('hidden');
+
+            speakAIVoice("Trò chơi kết thúc!");
+        }
+
+        startBtn.addEventListener('click', startGame);
+        restartBtn.addEventListener('click', startGame);
+    </script>
+</body>
+</html>
